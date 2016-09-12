@@ -83,7 +83,7 @@ In the below example there are 5984 images in the training set and 1496 images i
 In this example we will use **DetectNet**.
 DetectNet is a GoogLeNet-derived network that is specifically tuned for Object Detection.
 
-For more information on DetectNet, refer to this [article](Detectnet_parallelforall.docx.pdf).
+For more information on DetectNet, please refer to [this blog post](https://devblogs.nvidia.com/parallelforall/detectnet-deep-neural-network-object-detection-digits/).
 
 In order to train DetectNet, [NVcaffe](https://github.com/NVIDIA/caffe) version [0.15.1](https://github.com/NVIDIA/caffe/tree/v0.15.1) or later is required.
 The model description for DetectNet can be found at `$CAFFE_HOME/examples/kitti/detectnet_network.prototxt` ([raw link](https://raw.githubusercontent.com/NVIDIA/caffe/caffe-0.15/examples/kitti/detectnet_network.prototxt)).
@@ -99,6 +99,7 @@ On the DIGITS home page, select the `Models` tab then click `New Model > Images 
 
 On the model creation page:
 - Select the dataset that was created in the previous section.
+- Set `Subtract mean` to `None`.
 - Set the base learning rate to 0.0001.
 - Select the `ADAM` solver.
 - Select the `Custom Network` tab.

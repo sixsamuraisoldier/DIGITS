@@ -10,6 +10,7 @@ import werkzeug.exceptions
 
 from .forms import GenericImageModelForm
 from .job import GenericImageModelJob
+from digits.pretrained_model.job import PretrainedModelJob
 from digits import extensions, frameworks, utils
 from digits.config import config_value
 from digits.dataset import GenericDatasetJob, GenericImageDatasetJob
@@ -33,7 +34,7 @@ def new(extension_id=None):
     form.dataset.choices = get_datasets(extension_id)
     form.standard_networks.choices = []
     form.previous_networks.choices = get_previous_networks()
-
+    form.pretrained_networks.choices = get_pretrained_networks()
     prev_network_snapshots = get_previous_network_snapshots()
 
     ## Is there a request to clone a job with ?clone=<job_id>
@@ -47,6 +48,7 @@ def new(extension_id=None):
         frameworks=frameworks.get_frameworks(),
         previous_network_snapshots=prev_network_snapshots,
         previous_networks_fullinfo=get_previous_networks_fulldetails(),
+        pretrained_networks_fullinfo=get_pretrained_networks_fulldetails(),
         multi_gpu=config_value('caffe_root')['multi_gpu'],
         )
 
@@ -66,6 +68,7 @@ def create(extension_id=None):
     form.dataset.choices = get_datasets(extension_id)
     form.standard_networks.choices = []
     form.previous_networks.choices = get_previous_networks()
+    form.pretrained_networks.choices = get_pretrained_networks()
 
     prev_network_snapshots = get_previous_network_snapshots()
 
@@ -84,6 +87,7 @@ def create(extension_id=None):
                 frameworks=frameworks.get_frameworks(),
                 previous_network_snapshots=prev_network_snapshots,
                 previous_networks_fullinfo=get_previous_networks_fulldetails(),
+                pretrained_networks_fullinfo=get_pretrained_networks_fulldetails(),
                 multi_gpu=config_value('caffe_root')['multi_gpu'],
                 ), 400
 
@@ -121,6 +125,7 @@ def create(extension_id=None):
             job = GenericImageModelJob(
                     username    = utils.auth.get_username(),
                     name        = form.model_name.data + extra,
+                    group       = form.group_name.data,
                     dataset_id  = datasetJob.id(),
                     )
 
@@ -159,6 +164,13 @@ def create(extension_id=None):
                                 raise werkzeug.exceptions.BadRequest(
                                         "Pretrained_model for the selected epoch doesn't exists. May be deleted by another user/process. Please restart the server to load the correct pretrained_model details")
                         break
+            elif form.method.data == 'pretrained':
+                pretrained_job  = scheduler.get_job(form.pretrained_networks.data)
+                model_def_path  = pretrained_job.get_model_def_path()
+                weights_path    = pretrained_job.get_weights_path()
+
+                network = fw.get_network_from_path(model_def_path)
+                pretrained_model = weights_path
 
             elif form.method.data == 'custom':
                 network = fw.get_network_from_desc(form.custom_network.data)
@@ -243,6 +255,7 @@ def create(extension_id=None):
                         network = network,
                         random_seed = form.random_seed.data,
                         solver_type = form.solver_type.data,
+                        rms_decay=form.rms_decay.data,
                         shuffle = form.shuffle.data,
                         data_aug = data_aug,
                         )
@@ -356,7 +369,7 @@ def infer_one():
 
     if inputs is not None and len(inputs['data']) == 1:
         image = utils.image.embed_image_html(inputs['data'][0])
-        visualizations, header_html = get_inference_visualizations(
+        visualizations, header_html, app_begin_html, app_end_html = get_inference_visualizations(
             model_job.dataset,
             inputs,
             outputs)
@@ -365,6 +378,8 @@ def infer_one():
         image = None
         inference_view_html = None
         header_html = None
+        app_begin_html = None
+        app_end_html = None
 
     if request_wants_json():
         return flask.jsonify({'outputs': dict((name, blob.tolist())
@@ -377,6 +392,8 @@ def infer_one():
             image_src=image,
             inference_view_html=inference_view_html,
             header_html=header_html,
+            app_begin_html=app_begin_html,
+            app_end_html=app_end_html,
             visualizations=model_visualization,
             total_parameters=sum(v['param_count'] for v in model_visualization
                                  if v['vis_type'] == 'Weights'),
@@ -440,7 +457,7 @@ def infer_db():
 
     if inputs is not None:
         keys = [str(idx) for idx in inputs['ids']]
-        inference_views_html, header_html = get_inference_visualizations(
+        inference_views_html, header_html, app_begin_html, app_end_html = get_inference_visualizations(
             model_job.dataset,
             inputs,
             outputs)
@@ -448,6 +465,8 @@ def infer_db():
         inference_views_html = None
         header_html = None
         keys = None
+        app_begin_html = None
+        app_end_html = None
 
     if request_wants_json():
         result = {}
@@ -462,6 +481,8 @@ def infer_db():
             keys=keys,
             inference_views_html=inference_views_html,
             header_html=header_html,
+            app_begin_html=app_begin_html,
+            app_end_html=app_end_html,
             ), status_code
 
 
@@ -552,13 +573,15 @@ def infer_many():
 
     if inputs is not None:
         paths = [paths[idx] for idx in inputs['ids']]
-        inference_views_html, header_html = get_inference_visualizations(
+        inference_views_html, header_html, app_begin_html, app_end_html = get_inference_visualizations(
             model_job.dataset,
             inputs,
             outputs)
     else:
         inference_views_html = None
         header_html = None
+        app_begin_html = None
+        app_end_html = None
 
     if request_wants_json():
         result = {}
@@ -573,6 +596,8 @@ def infer_many():
             paths=paths,
             inference_views_html=inference_views_html,
             header_html=header_html,
+            app_begin_html=app_begin_html,
+            app_end_html=app_end_html,
             ), status_code
 
 
@@ -627,7 +652,8 @@ def get_inference_visualizations(dataset, inputs, outputs):
     # get header
     template, context = extension.get_header_template()
     header = flask.render_template_string(template, **context) if template else None
-    return visualizations, header
+    app_begin, app_end = extension.get_ng_templates()
+    return visualizations, header, app_begin, app_end
 
 
 def get_previous_networks():
@@ -655,6 +681,20 @@ def get_previous_network_snapshots():
         prev_network_snapshots.append(e)
     return prev_network_snapshots
 
+
+def get_pretrained_networks():
+    return [(j.id(), j.name()) for j in sorted(
+        [j for j in scheduler.jobs.values() if isinstance(j, PretrainedModelJob)],
+        cmp=lambda x,y: cmp(y.id(), x.id())
+        )
+        ]
+
+def get_pretrained_networks_fulldetails():
+    return [(j) for j in sorted(
+        [j for j in scheduler.jobs.values() if isinstance(j, PretrainedModelJob)],
+        cmp=lambda x,y: cmp(y.id(), x.id())
+        )
+        ]
 
 def get_view_extensions():
     """
